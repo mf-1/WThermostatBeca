@@ -13,7 +13,7 @@
 #include "WThermostat_DLX_LH01.h"
 
 #define APPLICATION "Thermostat"
-#define VERSION "1.38.9"
+#define VERSION "1.38.10"
 #define FLAG_SETTINGS 0x12
 #define DEBUG false
 
@@ -21,6 +21,8 @@ WNetwork* network;
 WProperty* thermostatModel;
 WThermostat* device;
 WClock* wClock;
+const unsigned long AP_WATCHDOG_TIMEOUT = 5 * 60000;
+unsigned long apModeSince = 0;
 
 void setup() {
 	Serial.begin(9600);
@@ -76,6 +78,20 @@ void setup() {
 }
 
 void loop() {
-	network->loop(millis());
+	unsigned long now = millis();
+	network->loop(now);
+	//Access point watchdog: after 3 failed connection attempts (e.g. router not yet up
+	//after a power cut) WAdapter stays in config AP mode without retrying. Restart to
+	//try again, unless Wifi is not configured, AP is forced or someone is connected to the AP.
+	if ((network->isSoftAP()) && (strlen(network->getSsid()) > 0) &&
+	    (!network->settings()->forceNetworkAccessPoint()) && (WiFi.softAPgetStationNum() == 0)) {
+		if (apModeSince == 0) {
+			apModeSince = now;
+		} else if (now - apModeSince > AP_WATCHDOG_TIMEOUT) {
+			ESP.restart();
+		}
+	} else {
+		apModeSince = 0;
+	}
 	delay(50);
 }
