@@ -126,4 +126,10 @@ git clone https://github.com/mf-1/WThermostatBeca.git
 cd WThermostatBeca
 pio run
 ```
-The firmware is written to `.pio/build/esp01_1m/firmware.bin`. Upload it via `http://<device_ip>/firmware`, or for the first installation via serial, see [Flashing.md](Flashing.md) (`pio run -t upload --upload-port /dev/ttyUSB0` does the same as the esptool command there).
+The firmware is written to `.pio/build/esp01_1m/firmware.bin`.
+
+To build and upload in one step to a device already running this firmware (via its web interface, needs `curl`):
+```
+pio run -e ota -t upload --upload-port <device_ip>
+```
+Alternatively upload the file via `http://<device_ip>/firmware`. For the first installation via serial, see [Flashing.md](Flashing.md) (`pio run -t upload --upload-port /dev/ttyUSB0` does the same as the esptool command there).
