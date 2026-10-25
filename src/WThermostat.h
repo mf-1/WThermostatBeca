@@ -825,7 +825,8 @@ protected :
     if (this->state != nullptr) {
       p += haState("action_topic", "action_template", "state", "{{ 'heating' if VALUE == 'heating' else 'idle' }}");
     }
-    p += ",\"min_temp\":5,\"max_temp\":35,\"temp_step\":" + step + ",\"precision\":" + step + "}";
+    //precision 0.1: always show one decimal (30.5), steps from temp_step
+    p += ",\"min_temp\":5,\"max_temp\":35,\"temp_step\":" + step + ",\"precision\":0.1,\"temperature_unit\":\"C\"}";
     haPublish("climate", uid, p);
     if (this->schedulesTemperature != nullptr) {
       p = haHeader(uid, "Schedules temperature", "_schedules_temperature");
