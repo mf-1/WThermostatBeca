@@ -43,6 +43,8 @@ public :
       iResetState = 0;
       lastCommandSent = 0;
       usingCommandQueue = false;
+      firstHeartBeatReceived = false;
+      mcuRestarted = false;
   }
 
   virtual void queryProductInfo() {
@@ -85,6 +87,10 @@ public :
       } else if (receiveIndex == 5) {
         //length information now available
         commandLength = receivedCommand[4] * 0x100 + receivedCommand[5];
+        if (6 + commandLength >= (int) sizeof(receivedCommand)) {
+          //frame doesn't fit into buffer, drop it
+          resetAll();
+        }
       } else if ((commandLength > -1)
           && (receiveIndex == (6 + commandLength))) {
         //verify checksum

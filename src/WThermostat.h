@@ -404,11 +404,7 @@ protected :
         break;
       }
       case 0x04: {
-        //Setup initialization request
-        //received: 55 aa 01 04 00 00
-        //send answer: 55 aa 00 03 00 01 00
-        unsigned char configCommand[] = { 0x55, 0xAA, 0x00, 0x03, 0x00,	0x01, 0x00 };
-        commandCharsToSerial(7, configCommand);
+        //Setup initialization request, answer already sent by WTuyaDevice
         network()->startWebServer();
         knownCommand = true;
         break;
@@ -537,8 +533,7 @@ protected :
       int period = 0;
       if (wClock->isTimeEarlierThan(schedules[startAddr + period * 3 + hh_Offset], schedules[startAddr + period * 3 + mm_Offset])) {
         //Jump back to day before and last schedule of day
-        weekDay = weekDay - 1;
-        weekDay = weekDay % 7;
+        weekDay = (weekDay + 6) % 7;
         startAddr = (this->byteSchedulingDays == 18 ? (weekDay == 0 ? 36 : (weekDay == 6 ? 18 : 0)) : ((weekDay == 0) || (weekDay == 6) ? 18 : 0));
         period = 5;
       } else {
@@ -626,7 +621,7 @@ protected :
     	//00 06 28|00 08 28|1E 0B 28|1E 0D 28|00 11 28|00 16 1E|
       int daysToSend = this->byteSchedulingDays;
 			int functionLength = (daysToSend * 3);
-    	unsigned char scheduleCommand[functionLength];
+    	unsigned char scheduleCommand[functionLength + 10];
     	scheduleCommand[0] = 0x55;
     	scheduleCommand[1] = 0xaa;
     	scheduleCommand[2] = 0x00;
