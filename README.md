@@ -120,7 +120,10 @@ Send a complete json structure with changed parameters to `<your_mqtt_topic>/the
 Send a json with changed schedules to `<your_mqtt_topic>/things/thermostat/schedules`.
 
 ### Build this firmware from source
-For build from sources you can use the Atom IDE (recommended), Arduino IDE or other. All sources needed are inside the folder 'WThermostat' and my other library: 
-https://github.com/klausahrenberg/WAdapter. 
-Additionally you will need some other libraries, which you can find listed here: 
-https://github.com/klausahrenberg/WThermostatBeca/blob/master/WThermostat/platformio.ini
+The project builds with [PlatformIO](https://platformio.org/) (command line or the VS Code extension). All dependencies, including [WAdapter](https://github.com/klausahrenberg/WAdapter), are fetched automatically with the versions pinned in [platformio.ini](platformio.ini).
+```
+git clone https://github.com/mf-1/WThermostatBeca.git
+cd WThermostatBeca
+pio run
+```
+The firmware is written to `.pio/build/esp01_1m/firmware.bin`. Upload it via `http://<device_ip>/firmware`, or for the first installation via serial, see [Flashing.md](Flashing.md) (`pio run -t upload --upload-port /dev/ttyUSB0` does the same as the esptool command there).
