@@ -43,6 +43,7 @@ public :
 		this->targetTemperatureManualMode = 0.0;
     this->currentSchedulePeriod = -1;
     this->updatingTargetTemperature = false;
+    this->lastMqttConnected = false;
     //HtmlPages
     WPage* configPage = new WPage(this->id(), "Configure thermostat");
     configPage->setPrintPage(std::bind(&WThermostat::printConfigPage, this, std::placeholders::_1, std::placeholders::_2));
@@ -323,6 +324,12 @@ public :
       network()->notice(F("GPIO5: %d"), digitalRead(PIN_STATE_HEATING_RELAY));
     }
     WTuyaDevice::loop(now);
+    //Home Assistant MQTT discovery, after every (re)connect
+    bool mqttConnected = network()->isMqttConnected();
+    if ((mqttConnected) && (!lastMqttConnected)) {
+      sendHomeAssistantDiscovery();
+    }
+    lastMqttConnected = mqttConnected;
     updateCurrentSchedulePeriod();
     if (receivedSchedules()) {
       //Notify schedules
@@ -796,6 +803,79 @@ protected :
     updatingTargetTemperature = false;
   }
 
+  void sendHomeAssistantDiscovery() {
+    //Config topic: homeassistant/<component>/<unique id>/config, retained
+    String uid = String(network()->getIdx());
+    for (unsigned int i = 0; i < uid.length(); i++) {
+      if ((!isAlphaNumeric(uid[i])) && (uid[i] != '-') && (uid[i] != '_')) uid.setCharAt(i, '_');
+    }
+    String step = String(1.0f / this->temperatureFactor, 1);
+    String p = haHeader(uid, "Thermostat", "_thermostat");
+    p += haState("current_temperature_topic", "current_temperature_template", "temperature", "");
+    p += haState("temperature_state_topic", "temperature_state_template", "targetTemperature", "");
+    p += haCommand("temperature_command_topic", "targetTemperature");
+    p += F(",\"modes\":[\"heat\",\"off\"]");
+    p += haState("mode_state_topic", "mode_state_template", "deviceOn", "{{ 'heat' if VALUE in [true, 'true'] else 'off' }}");
+    p += haCommand("mode_command_topic", "deviceOn");
+    p += F(",\"mode_command_template\":\"{{ 'true' if value == 'heat' else 'false' }}\"");
+    p += F(",\"preset_modes\":[\"auto\"]");
+    p += haState("preset_mode_state_topic", "preset_mode_value_template", "schedulesMode", "{{ 'auto' if VALUE == 'auto' else 'none' }}");
+    p += haCommand("preset_mode_command_topic", "schedulesMode");
+    p += F(",\"preset_mode_command_template\":\"{{ 'auto' if value == 'auto' else 'off' }}\"");
+    if (this->state != nullptr) {
+      p += haState("action_topic", "action_template", "state", "{{ 'heating' if VALUE == 'heating' else 'idle' }}");
+    }
+    p += ",\"min_temp\":5,\"max_temp\":35,\"temp_step\":" + step + ",\"precision\":" + step + "}";
+    haPublish("climate", uid, p);
+    if (this->schedulesTemperature != nullptr) {
+      p = haHeader(uid, "Schedules temperature", "_schedules_temperature");
+      p += haState("state_topic", "value_template", "schedulesTemperature", "");
+      p += haCommand("command_topic", "schedulesTemperature");
+      p += ",\"min\":5,\"max\":35,\"step\":" + step + ",\"mode\":\"box\",\"unit_of_measurement\":\"\u00b0C\"}";
+      haPublish("number", uid + "_schedules_temperature", p);
+    }
+  }
+
+  String haHeader(String uid, const char* name, const char* uidSuffix) {
+    String p = "{\"~\":\"" + String(network()->mqttBaseTopic()) + "/" + String(this->id()) + "\"";
+    p += ",\"name\":\"" + String(name) + "\",\"unique_id\":\"" + uid + uidSuffix + "\"";
+    p += ",\"device\":{\"identifiers\":[\"" + uid + "\"],\"name\":\"" + String(network()->getIdx()) + "\"";
+    p += ",\"configuration_url\":\"http://" + network()->getDeviceIp().toString() + "/\"}";
+    return p;
+  }
+
+  String haState(const char* topicKey, const char* templateKey, const char* property, const char* valueTemplate) {
+    //State topic depends on 'Send changes in separate MQTT messages'
+    bool json = sendCompleteDeviceState();
+    String p = ",\"" + String(topicKey) + "\":\"~/" + String(network()->mqttStateTopic()) + (json ? "" : "/" + String(property)) + "\"";
+    String value = (json ? "value_json." + String(property) : "value");
+    String t = String(valueTemplate);
+    if (t.length() > 0) {
+      t.replace("VALUE", value);
+    } else if (json) {
+      t = "{{ " + value + " }}";
+    }
+    if (t.length() > 0) {
+      p += ",\"" + String(templateKey) + "\":\"" + t + "\"";
+    }
+    return p;
+  }
+
+  String haCommand(const char* topicKey, const char* property) {
+    return ",\"" + String(topicKey) + "\":\"~/" + String(network()->mqttSetTopic()) + "/" + String(property) + "\"";
+  }
+
+  void haPublish(const char* component, String objectId, String& payload) {
+    String topic = "homeassistant/" + String(component) + "/" + objectId + "/config";
+    if (topic.length() + payload.length() + 10 > SIZE_JSON_PACKET) {
+      network()->error(F("HA discovery for %s too large (%d bytes)"), component, payload.length());
+      return;
+    }
+    WStringStream* response = network()->getResponseStream();
+    response->print(payload);
+    network()->publishMqtt(topic.c_str(), response, true);
+  }
+
   bool receivedSchedules() {
     return ((network()->isDebugging()) || (this->schedulesReceived));
   }
@@ -810,7 +890,7 @@ protected :
 
 private :
   unsigned long lastNotify, lastScheduleNotify, lastRelayPinNotify;
-  bool schedulesChanged, schedulesReceived, updatingTargetTemperature;
+  bool schedulesChanged, schedulesReceived, updatingTargetTemperature, lastMqttConnected;
   int currentSchedulePeriod;
 
 
