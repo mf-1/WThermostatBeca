@@ -13,7 +13,7 @@
 #include "WThermostat_DLX_LH01.h"
 
 #define APPLICATION "Thermostat"
-#define VERSION "1.38.5"
+#define VERSION "1.38.6"
 #define FLAG_SETTINGS 0x12
 #define DEBUG false
 

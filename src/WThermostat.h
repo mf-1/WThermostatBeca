@@ -37,7 +37,7 @@ public :
     this->wClock->setOnTimeUpdate([this]() {
       this->sendActualTimeToBeca();
     });
-    lastNotify = lastScheduleNotify = 0;
+    lastNotify = lastScheduleNotify = lastRelayPinNotify = 0;
     this->schedulesChanged = false;
 		this->schedulesReceived = false;
 		this->targetTemperatureManualMode = 0.0;
@@ -154,7 +154,7 @@ public :
     page->print(FPSTR(HTTP_COMBOBOX_END));
 		page->printf(HTTP_CHECKBOX_OPTION, "cr", "cr", (this->sendCompleteDeviceState() ? "" : HTTP_CHECKED), "", "Send changes in separate MQTT messages");
 		//notifyAllMcuCommands
-		page->printf(HTTP_CHECKBOX_OPTION, "am", "am", (this->notifyAllMcuCommands->asBool() ? HTTP_CHECKED : ""), "", "Send all MCU commands via MQTT");
+		page->printf(HTTP_CHECKBOX_OPTION, "am", "am", (this->notifyAllMcuCommands->asBool() ? HTTP_CHECKED : ""), "", "Send all MCU commands and GPIO5 level via MQTT");
     //Checkbox with support for relay
 		page->printf(HTTP_CHECKBOX_OPTION, "rs", "rs", (this->supportingHeatingRelay->asBool() ? HTTP_CHECKED : ""), "", "Relay at GPIO 5 (not working without hw mod)");
 
@@ -307,6 +307,11 @@ public :
         heating = digitalRead(PIN_STATE_HEATING_RELAY);
       }
       this->state->asString(heating ? STATE_HEATING : STATE_OFF);
+    }
+    //Diagnostics: report level of relay pin, e.g. to check the hw mod
+    if ((this->notifyAllMcuCommands->asBool()) && (now - lastRelayPinNotify > 5000)) {
+      lastRelayPinNotify = now;
+      network()->notice(F("GPIO5: %d"), digitalRead(PIN_STATE_HEATING_RELAY));
     }
     WTuyaDevice::loop(now);
     updateCurrentSchedulePeriod();
@@ -756,7 +761,7 @@ protected :
   }
 
 private :
-  unsigned long lastNotify, lastScheduleNotify;
+  unsigned long lastNotify, lastScheduleNotify, lastRelayPinNotify;
   bool schedulesChanged, schedulesReceived;
   int currentSchedulePeriod;
 
