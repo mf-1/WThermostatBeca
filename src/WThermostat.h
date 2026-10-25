@@ -42,6 +42,7 @@ public :
 		this->schedulesReceived = false;
 		this->targetTemperatureManualMode = 0.0;
     this->currentSchedulePeriod = -1;
+    this->updatingTargetTemperature = false;
     //HtmlPages
     WPage* configPage = new WPage(this->id(), "Configure thermostat");
     configPage->setPrintPage(std::bind(&WThermostat::printConfigPage, this, std::placeholders::_1, std::placeholders::_2));
@@ -107,6 +108,14 @@ public :
     this->schedulesMode->addEnumString(SCHEDULES_MODE_OFF);
     this->schedulesMode->addListener(std::bind(&WThermostat::schedulesModeToMcu, this, std::placeholders::_1));
     this->addProperty(schedulesMode);
+    //Set all schedule periods to the same temperature, reports 0 if they differ
+    this->schedulesTemperature = nullptr;
+    if (byteSchedules != NOT_SUPPORTED) {
+      this->schedulesTemperature = new WProperty("schedulesTemperature", "Schedules temperature", DOUBLE, TYPE_TARGET_TEMPERATURE_PROPERTY);
+      this->schedulesTemperature->visibility(MQTT);
+      this->schedulesTemperature->addListener(std::bind(&WThermostat::schedulesTemperatureToMcu, this, std::placeholders::_1));
+      this->addProperty(schedulesTemperature);
+    }
     this->switchBackToAuto = network()->settings()->setBoolean("switchBackToAuto", true);
     this->locked = WProps::createOnOffProperty("locked", "Lock");
     this->locked->addListener(std::bind(&WThermostat::lockedToMcu, this, std::placeholders::_1));
@@ -357,6 +366,7 @@ protected :
   WProperty* locked;
   WProperty* state;
   WProperty* supportingHeatingRelay;
+  WProperty* schedulesTemperature;
   byte schedules[54];
 
   void sendActualTimeToBeca() {
@@ -523,8 +533,37 @@ protected :
       if (changed) {
         notifySchedules();
       }
+      updateSchedulesTemperature();
     }
     return result;
+  }
+
+  void updateSchedulesTemperature() {
+    if (this->schedulesTemperature != nullptr) {
+      bool uniform = true;
+      for (int i = 0; i < this->byteSchedulingDays * 3; i += 3) {
+        uniform = ((uniform) && (schedules[i + 2] == schedules[2]));
+      }
+      this->schedulesTemperature->asDouble(uniform ? (double) schedules[2] / this->temperatureFactor : 0.0);
+    }
+  }
+
+  void schedulesTemperatureToMcu(WProperty* property) {
+    if ((!isReceivingDataFromMcu()) && (receivedSchedules())) {
+      double temp = property->asDouble();
+      if ((temp >= 5.0) && (temp <= 35.0)) {
+        byte tt = (byte) (temp * this->temperatureFactor + 0.5);
+        bool changed = false;
+        for (int i = 0; i < this->byteSchedulingDays * 3; i += 3) {
+          changed = ((changed) || (schedules[i + 2] != tt));
+          schedules[i + 2] = tt;
+        }
+        if (changed) {
+          network()->debug(F("Set all schedules to %D. Write to MCU..."), temp);
+          this->schedulesToMcu();
+        }
+      }
+    }
   }
 
   void updateCurrentSchedulePeriod() {
@@ -732,20 +771,29 @@ protected :
   }
 
   void setTargetTemperature(WProperty* property) {
+    if (updatingTargetTemperature) {
+      //value from MCU or current schedule, not set by user
+      return;
+    }
     if (!WProperty::isEqual(targetTemperatureManualMode, this->targetTemperature->asDouble(), 0.01)) {
       targetTemperatureManualMode = this->targetTemperature->asDouble();
+      if ((!isReceivingDataFromMcu()) && (schedulesMode->equalsString(SCHEDULES_MODE_AUTO))) {
+        //Like the buttons at device: manual mode until next schedule period (if switchBackToAuto)
+        schedulesMode->asString(SCHEDULES_MODE_OFF);
+      }
       targetTemperatureManualModeToMcu();
-      //schedulesMode->setString(SCHEDULES_MODE_OFF);
     }
   }
 
   void updateTargetTemperature() {
+    updatingTargetTemperature = true;
     if ((this->currentSchedulePeriod != -1) && (schedulesMode->equalsString(SCHEDULES_MODE_AUTO))) {
       double temp = (double) schedules[this->currentSchedulePeriod + 2] / this->temperatureFactor;
       targetTemperature->asDouble(temp);
     } else {
       targetTemperature->asDouble(targetTemperatureManualMode);
     }
+    updatingTargetTemperature = false;
   }
 
   bool receivedSchedules() {
@@ -762,7 +810,7 @@ protected :
 
 private :
   unsigned long lastNotify, lastScheduleNotify, lastRelayPinNotify;
-  bool schedulesChanged, schedulesReceived;
+  bool schedulesChanged, schedulesReceived, updatingTargetTemperature;
   int currentSchedulePeriod;
 
 
