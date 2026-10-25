@@ -412,7 +412,7 @@ protected :
       //55 aa 00 00 00 00
       this->receivingDataFromMcu = true;
       if (notifyAllMcuCommands->asBool()) {
-        network()->debug(F("MCU: %s"), this->getCommandAsString().c_str());
+        network()->notice(F("MCU: %s"), this->getCommandAsString().c_str());
       }
       bool knownCommand = false;
       if (receivedCommand[3] == 0x07) {
