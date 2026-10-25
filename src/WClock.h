@@ -28,6 +28,10 @@ const byte DST_WEEKDAY = 6;
 const byte DST_HOUR = 7;
 const byte *DEFAULT_DST_RULE = (const byte[]){10, 0, 0, 3, 3, 0, 0, 2};
 const byte *DEFAULT_NIGHT_SWITCHES = (const byte[]){22, 00, 7, 00};
+const unsigned long SYNC_INTERVAL = 60 * 60000;
+const unsigned long SYNC_RETRY_INTERVAL = 60000;
+//Without NTP sync the millis() based clock drifts and overflows after 49 days
+const unsigned long MAX_TIME_WITHOUT_NTP_SYNC = 24 * 60 * 60000;
 
 class WClock: public WDevice {
 public:
@@ -41,7 +45,7 @@ public:
 		this->ntpServer->readOnly(true);
 		this->ntpServer->visibility(MQTT);
 		this->addProperty(ntpServer);
-		this->useTimeZoneServer = network->settings()->setBoolean("useTimeZoneServer", true);
+		this->useTimeZoneServer = network->settings()->setBoolean("useTimeZoneServer", false);
 		this->useTimeZoneServer->readOnly(true);
 		this->useTimeZoneServer->visibility(NONE);
 		this->addProperty(useTimeZoneServer);
@@ -77,7 +81,7 @@ public:
 		network->settings()->add(this->dstOffset);
 		this->dstOffset->readOnly(true);
 		this->addProperty(dstOffset);
-		this->useDaySavingTimes = network->settings()->setBoolean("useDaySavingTimes", false);
+		this->useDaySavingTimes = network->settings()->setBoolean("useDaySavingTimes", true);
 		this->useDaySavingTimes->visibility(NONE);
 		this->dstRule = network->settings()->setByteArray("dstRule", 8, DEFAULT_DST_RULE);
 		//HtmlPages
@@ -86,8 +90,9 @@ public:
     configPage->setSubmittedPage(std::bind(&WClock::saveConfigPage, this, std::placeholders::_1, std::placeholders::_2));
     network->addCustomPage(configPage);
 
-		lastTry = lastNtpSync = lastTimeZoneSync = ntpTime = dstStart = dstEnd = 0;
+		lastTry = lastNtpSync = lastNtpTry = lastTimeZoneSync = lastTimeZoneTry = ntpTime = dstStart = dstEnd = 0;
 		failedTimeZoneSync = 0;
+		lastDstOffset = 0;
 		//enableNightMode
 		this->enableNightMode = nullptr;
 		this->nightMode = nullptr;
@@ -102,13 +107,13 @@ public:
 	}
 
 	void loop(unsigned long now) {
-		//Invalid after 3 hours
-		validTime->asBool((lastNtpSync > 0) && ((!this->useTimeZoneServer->asBool()) || (lastTimeZoneSync > 0)) && (now - lastTry < (3 * 60 * 60000)));		
-		if (((lastTry == 0) || (now - lastTry > 10000)) && (WiFi.status() == WL_CONNECTED)) {		
-			bool timeUpdated = false;			
-			//1. Sync ntp
-			if ((!isValidTime())
-			    && ((lastNtpSync == 0) || (now - lastNtpSync > 60000))) {
+		validTime->asBool((lastNtpSync > 0) && (now - lastNtpSync < MAX_TIME_WITHOUT_NTP_SYNC) &&
+		                  ((!this->useTimeZoneServer->asBool()) || (lastTimeZoneSync > 0)));
+		if (((lastTry == 0) || (now - lastTry > 10000)) && (WiFi.status() == WL_CONNECTED)) {
+			bool timeUpdated = false;
+			//1. Sync ntp, every hour to correct drift and millis() overflow
+			if ((isDue(now, lastNtpSync, SYNC_INTERVAL)) && (isDue(now, lastNtpTry, SYNC_RETRY_INTERVAL))) {
+				lastNtpTry = now;
 				network()->debug(F("Time via NTP server '%s'"), ntpServer->c_str());
 				WiFiUDP ntpUDP;
 				NTPClient ntpClient(ntpUDP, ntpServer->c_str());
@@ -116,18 +121,18 @@ public:
 					lastNtpSync = millis();
 					ntpTime = ntpClient.getEpochTime();
 					this->calculateDstStartAndEnd();
-					validTime->asBool(!this->useTimeZoneServer->asBool());
 					network()->debug(F("NTP time synced: %s"), _epochTimeFormatted->c_str());
 					timeUpdated = true;
 				} else {
 					network()->error(F("NTP sync failed. "));
 				}
 			}
-			//2. Sync time zone
-			if ((!isValidTime())
-			    && ((lastNtpSync > 0) && ((lastTimeZoneSync == 0) || (now - lastTimeZoneSync > 60000)))
+			//2. Sync time zone, every hour to follow day saving time changes
+			if ((lastNtpSync > 0)
+			    && (isDue(now, lastTimeZoneSync, SYNC_INTERVAL)) && (isDue(now, lastTimeZoneTry, SYNC_RETRY_INTERVAL))
 					&& (useTimeZoneServer->asBool())
 				  && (!timeZoneServer->equalsString(""))) {
+				lastTimeZoneTry = now;
 				String request = timeZoneServer->c_str();
 				network()->debug(F("Time zone update via '%s'"), request.c_str());
 				HTTPClient http;
@@ -148,7 +153,6 @@ public:
 					if (property != nullptr) {
 						failedTimeZoneSync = 0;
 						lastTimeZoneSync = millis();
-						validTime->asBool(true);
 						network()->debug(F("Time zone evaluated. Current local time: %s"), _epochTimeFormatted->c_str());
 						timeUpdated = true;
 					} else {
@@ -161,12 +165,24 @@ public:
 				}
 				http.end();
 				if (failedTimeZoneSync == 3) {
+					//Use last stored offsets until next sync interval
+					network()->error(F("Time zone server not available, using last known offsets"));
 					failedTimeZoneSync = 0;
 					lastTimeZoneSync = millis();
+					timeUpdated = true;
+				}
+			}
+			validTime->asBool((lastNtpSync > 0) && ((!this->useTimeZoneServer->asBool()) || (lastTimeZoneSync > 0)));
+			if (isValidTime()) {
+				//Day saving time switched: local time jumped
+				int dst = getDstOffset();
+				if (dst != lastDstOffset) {
+					lastDstOffset = dst;
+					timeUpdated = true;
 				}
 			}
 			//check nightMode
-			if ((validTime) && (this->enableNightMode) && (this->enableNightMode->asBool())) {
+			if ((isValidTime()) && (this->enableNightMode) && (this->enableNightMode->asBool())) {
 				this->nightMode->asBool(this->isTimeBetween(this->nightSwitches->byteArrayValue(0), this->nightSwitches->byteArrayValue(1),
 																												this->nightSwitches->byteArrayValue(2), this->nightSwitches->byteArrayValue(3)));
 			}
@@ -176,7 +192,7 @@ public:
 				_notifyOnMinuteUpdate();
 			}
 			lastTry = millis();
-		}		
+		}
 	}
 
 	void setOnTimeUpdate(THandlerFunction onTimeUpdate) {
@@ -438,6 +454,8 @@ public:
 		this->dstRule->byteArrayValue(DST_WEEK, atoi(request->arg("dw").c_str()));
 		this->dstRule->byteArrayValue(DST_WEEKDAY, atoi(request->arg("dd").c_str()));
 		this->dstRule->byteArrayValue(DST_HOUR, atoi(request->arg("dh").c_str()));
+		//force recalculation with new rules
+		dstStart = dstEnd = 0;
 		if (this->enableNightMode) {
 			this->enableNightMode->asBool(request->arg("sn") == HTTP_TRUE);
 			processNightModeTime(0, request->arg("nf").c_str());
@@ -453,9 +471,10 @@ public:
 
 private:
 	THandlerFunction _onTimeUpdate, _onMinuteTrigger;
-	unsigned long lastTry, lastNtpSync, lastTimeZoneSync, ntpTime;
+	unsigned long lastTry, lastNtpSync, lastNtpTry, lastTimeZoneSync, lastTimeZoneTry, ntpTime;
 	unsigned long dstStart, dstEnd;
-	byte failedTimeZoneSync;	
+	byte failedTimeZoneSync;
+	int lastDstOffset;
 	WProperty* _epochTimeFormatted;
 	WProperty* validTime;
 	WProperty* ntpServer;
@@ -469,6 +488,10 @@ private:
 	WProperty* enableNightMode;
 	WProperty* nightSwitches;
 	WiFiClient* wifiClient;
+
+	static bool isDue(unsigned long now, unsigned long last, unsigned long interval) {
+		return ((last == 0) || (now - last > interval));
+	}
 
 	void _notifyOnTimeUpdate() {
 		if (_onTimeUpdate) {
@@ -511,13 +534,14 @@ private:
 	}
 
 	void calculateDstStartAndEnd() {
-		if ((!this->useTimeZoneServer->asBool()) && (this->useDaySavingTimes->asBool())) {
+		if ((lastNtpSync > 0) && (!this->useTimeZoneServer->asBool()) && (this->useDaySavingTimes->asBool())) {
 			int year = WClock::yearOf(_epochTime(false));
 			dstStart = getEpochTime(year, dstRule->byteArrayValue(DST_MONTH), dstRule->byteArrayValue(DST_WEEK), dstRule->byteArrayValue(DST_WEEKDAY), dstRule->byteArrayValue(DST_HOUR));
 			WStringStream* stream = updateFormattedTime(dstStart);
 			//network()->debug(F("DST start is: %s"), stream->c_str());
 			delete stream;
-			dstEnd = getEpochTime(year, dstRule->byteArrayValue(STD_MONTH), dstRule->byteArrayValue(STD_WEEK), dstRule->byteArrayValue(STD_WEEKDAY), dstRule->byteArrayValue(STD_HOUR));
+			//end hour is given in summer time, compared with standard time
+			dstEnd = getEpochTime(year, dstRule->byteArrayValue(STD_MONTH), dstRule->byteArrayValue(STD_WEEK), dstRule->byteArrayValue(STD_WEEKDAY), dstRule->byteArrayValue(STD_HOUR)) - dstOffset->asInt();
 			stream = updateFormattedTime(dstEnd);
 			//network()->debug(F("STD start is: %s"), stream->c_str());
 			delete stream;
@@ -526,9 +550,9 @@ private:
 
 	bool isDaySavingTime() {
 		if ((!this->useTimeZoneServer->asBool()) && (this->useDaySavingTimes->asBool())) {
-			if ((this->dstStart != 0) && (this->dstEnd != 0)) {
+			if (lastNtpSync > 0) {
 				unsigned long now = _epochTime(false);
-				if (yearOf(now) != yearOf(dstStart)) {
+				if ((dstStart == 0) || (yearOf(now) != yearOf(dstStart))) {
 					calculateDstStartAndEnd();
 				}
 				if (dstStart < dstEnd) {
@@ -540,7 +564,7 @@ private:
 				return false;
 			}
 		} else {
-			return (dstOffset->asInt() != 0);
+			return false;
 		}
 	}
 
