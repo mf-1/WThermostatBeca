@@ -287,7 +287,8 @@ protected :
   }
 
   String getCommandAsString() {
-    return getBufferAsString(commandLength, receivedCommand);
+    //complete frame: header (6 bytes), data and checksum
+    return getBufferAsString((commandLength > -1 ? commandLength + 7 : -1), receivedCommand);
   }
 
   String getBufferAsString(int length, unsigned char* command) {
