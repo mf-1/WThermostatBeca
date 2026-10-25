@@ -55,4 +55,4 @@ After you have successfully flashed the firmware to your thermostat you need to 
 This method does not require any kind of soldering or disassembly of the device.  
 Some users were able to flash Beca Thermostats (BHT-002 and BHT-6000 also) with [tuya-convert](https://github.com/ct-Open-Source/tuya-convert).  
 Follow the steps [here](https://github.com/ct-Open-Source/tuya-convert#procedure) to upload the firmware to your thermostat.  
-You should download the binary from here and place it in the ```/files/``` folder before starting the flash procedure.  
+You should download the binary from the [latest release](https://github.com/mf-1/WThermostatBeca/releases/latest) and place it in the ```/files/``` folder before starting the flash procedure.  

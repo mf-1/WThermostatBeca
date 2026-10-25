@@ -1,6 +1,8 @@
 # ThermostatBecaWifi
 
-[![GitHub version](https://img.shields.io/github/release/klausahrenberg/WThermostatBeca.svg)](https://github.com/klausahrenberg/WThermostatBeca/releases/latest)
+[![GitHub version](https://img.shields.io/github/release/mf-1/WThermostatBeca.svg)](https://github.com/mf-1/WThermostatBeca/releases/latest)
+
+Fork of [klausahrenberg/WThermostatBeca](https://github.com/klausahrenberg/WThermostatBeca) with bug fixes, time zone selection with automatic day saving time, Home Assistant MQTT discovery and an access point watchdog. See the [releases](https://github.com/mf-1/WThermostatBeca/releases) for details.
 
 Replaces original Tuya firmware on Beca thermostat with ESP8266 wifi module. The firmware is tested with following devices:
 * BHT-002, BHT-6000, BHT-3000 (floor heating)
@@ -41,11 +43,11 @@ For productive use only stable version 1.19. Version 1.20x_beta is rewritten to 
 * Only BAC-002-ALW: fanSpeed:auto|low|medium|high; systemMode:cooling|heating|ventilation
 * Reading and setting of time schedules via MQTT
 ## Installation
-To install the firmware, follow instructions here:  
-https://github.com/klausahrenberg/WThermostatBeca/blob/master/Flashing.md
+Download the firmware (`WThermostat_x.xx.bin`) from the [latest release](https://github.com/mf-1/WThermostatBeca/releases/latest).  
+To install the firmware, follow instructions here: [Flashing.md](Flashing.md)  
+Devices already running this firmware can be updated via `http://<device_ip>/firmware`.
 ## Initial configuration
-To setup the device model, network options and other parameters, follow instrcution here:  
-https://github.com/klausahrenberg/WThermostatBeca/blob/master/Configuration.md  
+To setup the device model, network options and other parameters, follow instrcution here: [Configuration.md](Configuration.md)  
 After initial setup, the device configuration is still available via `http://<device_ip>/config`  
 ## Integration in Webthings
 This firmware supports Mozilla Webthings directly. With Webthings you can control the device via the Gateway - inside and also outside of your home network. No clunky VPN, dynDNS solutions needed to access your home devices. I recommend to run the gateway in parallel to an MQTT server and for example Node-Red. Via MQTT you can control the device completely and logic can be done by Node-Red. Webthings is used for outside control of main parameters.  
