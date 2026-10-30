@@ -21,6 +21,17 @@
 #define NOT_SUPPORTED 0x00
 
 const char* SCHEDULES = "schedules";
+
+//Calls its listeners on every set (MQTT, web), also if the value is the same as before
+class WCommandProperty : public WProperty {
+ public:
+  using WProperty::WProperty;
+
+  virtual bool parse(const char* value) {
+    if ((!readOnly()) && (value != nullptr)) setNull();
+    return WProperty::parse(value);
+  }
+};
 const char* SCHEDULES_MODE_OFF = "off";
 const char* SCHEDULES_MODE_AUTO = "auto";
 const char* SCHEDULES_MODE_HOLD = "hold";
@@ -124,7 +135,7 @@ public :
     //Set all schedule periods to the same temperature, reports 0 if they differ
     this->schedulesTemperature = nullptr;
     if (byteSchedules != NOT_SUPPORTED) {
-      this->schedulesTemperature = new WProperty("schedulesTemperature", "Schedules temperature", DOUBLE, TYPE_TARGET_TEMPERATURE_PROPERTY);
+      this->schedulesTemperature = new WCommandProperty("schedulesTemperature", "Schedules temperature", DOUBLE, TYPE_TARGET_TEMPERATURE_PROPERTY);
       this->schedulesTemperature->visibility(MQTT);
       this->schedulesTemperature->addListener(std::bind(&WThermostat::schedulesTemperatureToMcu, this, std::placeholders::_1));
       this->addProperty(schedulesTemperature);
@@ -652,6 +663,10 @@ protected :
         if (changed) {
           network()->debug(F("Set all schedules to %D. Write to MCU..."), temp);
           this->schedulesToMcu();
+        }
+        //One temperature for all periods: follow it now, also from manual mode
+        if (this->schedulesMode->equalsString(SCHEDULES_MODE_OFF)) {
+          this->schedulesMode->asString(SCHEDULES_MODE_AUTO);
         }
       }
     }
