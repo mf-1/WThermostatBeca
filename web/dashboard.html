@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Thermostat</title>
+<style>
+:root{--bg:#f2f4f7;--card:#fff;--fg:#1d2433;--muted:#667085;--line:#d0d5dd;--field:#f9fafb;--accent:#0b72c6;--heat:#e8590c;--ok:#12b76a;--danger:#d92d20}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1218;--card:#1a1f29;--fg:#e6e9ef;--muted:#98a2b3;--line:#344054;--field:#11151c;--accent:#3d9be9;--heat:#ff8c42;--ok:#32d583;--danger:#f04438}}
+*{box-sizing:border-box}
+body{margin:0;padding:16px;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}
+main{max-width:560px;margin:0 auto;display:grid;gap:14px}
+header{display:flex;align-items:center;gap:12px}
+header h1{margin:0;font-size:1.3rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+header a{color:var(--accent);text-decoration:none;font-weight:600}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--muted);flex:none}
+.dot.on{background:var(--ok)}
+.card{background:var(--card);border-radius:14px;padding:18px;box-shadow:0 1px 3px rgba(0,0,0,.08),0 8px 24px rgba(0,0,0,.06)}
+.muted{color:var(--muted);font-size:.85rem}
+.hero{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.actual{font-size:3.2rem;font-weight:300;line-height:1}
+.actual small{font-size:1.2rem}
+.badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.badge{font-size:.8rem;font-weight:600;padding:3px 10px;border-radius:99px;background:var(--field);border:1px solid var(--line);color:var(--muted)}
+.badge.heat{background:var(--heat);border-color:var(--heat);color:#fff}
+.target{display:flex;align-items:center;gap:10px}
+.target output{font-size:1.9rem;font-weight:600;min-width:4.2ch;text-align:center}
+.round{width:46px;height:46px;border-radius:50%;border:1px solid var(--line);background:var(--field);color:var(--fg);font-size:1.5rem;cursor:pointer}
+.round:active{background:var(--line)}
+.off .target,.off .actual{opacity:.45}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.row:first-child{border-top:0;padding-top:0}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.seg button{border:0;background:var(--field);color:var(--fg);font:inherit;padding:7px 14px;cursor:pointer}
+.seg button.sel{background:var(--accent);color:#fff;font-weight:600}
+.sw{position:relative;width:48px;height:28px;flex:none}
+.sw input{opacity:0;width:0;height:0;position:absolute}
+.sw span{position:absolute;inset:0;border-radius:99px;background:var(--line);transition:.2s;cursor:pointer}
+.sw span:before{content:"";position:absolute;width:22px;height:22px;left:3px;top:3px;border-radius:50%;background:#fff;transition:.2s}
+.sw input:checked+span{background:var(--accent)}
+.sw input:checked+span:before{transform:translateX(20px)}
+h2{font-size:1.05rem;margin:0 0 12px}
+.tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.tabs button{border:1px solid var(--line);background:var(--field);color:var(--fg);border-radius:99px;padding:5px 12px;font:inherit;font-size:.9rem;cursor:pointer}
+.tabs button.sel{background:var(--accent);border-color:var(--accent);color:#fff}
+table{width:100%;border-collapse:collapse}
+td{padding:5px 4px}
+tr.now td{background:color-mix(in srgb,var(--accent) 14%,transparent)}
+tr.now td:first-child{border-radius:8px 0 0 8px}
+tr.now td:last-child{border-radius:0 8px 8px 0}
+input[type=time],input[type=number]{font:inherit;color:inherit;background:var(--field);border:1px solid var(--line);border-radius:8px;padding:6px 8px;width:100%}
+input.dirty{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.actions{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
+.btn{border:0;border-radius:9px;background:var(--accent);color:#fff;font:inherit;font-weight:600;padding:9px 16px;cursor:pointer}
+.btn.ghost{background:var(--field);color:var(--fg);border:1px solid var(--line)}
+.btn:disabled{opacity:.45;cursor:default}
+.all{display:flex;gap:8px;align-items:center}
+.all input{width:90px}
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 16px;border-radius:9px;opacity:0;transition:.3s;pointer-events:none}
+#toast.show{opacity:1}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <header><span id="dot" class="dot" title="Connection"></span><h1 id="idx">Thermostat</h1><a href="/config">Settings</a></header>
+
+  <section id="main" class="card">
+    <div class="hero">
+      <div>
+        <div class="muted">Room</div>
+        <div class="actual"><span id="actual">--</span><small>°C</small></div>
+        <div class="badges"><span id="heat" class="badge" hidden></span><span id="floor" class="badge" hidden></span><span id="lockb" class="badge" hidden>Locked</span></div>
+      </div>
+      <div>
+        <div class="muted" style="text-align:center">Target</div>
+        <div class="target"><button class="round" id="minus" aria-label="Lower">−</button><output id="target">--</output><button class="round" id="plus" aria-label="Higher">+</button></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="row"><span>Power</span><label class="sw"><input type="checkbox" id="power"><span></span></label></div>
+    <div class="row"><span>Mode<br><span class="muted" id="modeHint"></span></span><div class="seg"><button id="auto">Auto</button><button id="manual">Manual</button></div></div>
+    <div class="row"><span>Child lock</span><label class="sw"><input type="checkbox" id="lock"><span></span></label></div>
+  </section>
+
+  <section class="card" id="sched" hidden>
+    <h2>Schedules</h2>
+    <div class="tabs" id="tabs"></div>
+    <table><tbody id="periods"></tbody></table>
+    <div class="actions"><button class="btn" id="save" disabled>Save schedules</button><button class="btn ghost" id="undo" disabled>Undo</button></div>
+    <div class="actions all"><span class="muted">All periods</span><input type="number" id="allTemp" min="5" max="35"><button class="btn ghost" id="allSet">Apply</button></div>
+  </section>
+
+  <div class="muted" style="text-align:center"><span id="fw"></span> · <a href="/config" style="color:inherit">Configuration</a></div>
+</main>
+<div id="toast"></div>
+<script>
+const $ = id => document.getElementById(id);
+const DAYS = [['w', 'Weekdays'], ['a', 'Weekend 1'], ['u', 'Weekend 2']];
+let s = null, day = 0, pendingTarget = null, targetTimer = null, holdUntil = 0, dirty = {};
+
+function toast(text) {
+  $('toast').textContent = text;
+  $('toast').classList.add('show');
+  setTimeout(() => $('toast').classList.remove('show'), 1800);
+}
+
+async function api(path, params) {
+  const opt = params ? {method: 'POST', body: new URLSearchParams(params)} : {};
+  const r = await fetch(path, opt);
+  if (!r.ok) throw new Error(r.status);
+  return r.json();
+}
+
+async function refresh() {
+  try {
+    render(await api('/api/state'));
+    $('dot').classList.add('on');
+  } catch (e) {
+    $('dot').classList.remove('on');
+  }
+}
+
+async function set(params) {
+  holdUntil = Date.now() + 2500;
+  try {
+    render(await api('/api/set', params));
+  } catch (e) {
+    toast('Not saved');
+  }
+  setTimeout(refresh, 1200);
+}
+
+const fmt = v => (v == null ? '--' : Number(v).toFixed(1));
+
+function render(d) {
+  s = d;
+  document.title = d.idx;
+  $('idx').textContent = d.idx;
+  $('fw').textContent = 'Firmware ' + d.firmware;
+  $('actual').textContent = fmt(d.temperature);
+  if (pendingTarget == null && Date.now() > holdUntil) $('target').textContent = fmt(d.targetTemperature);
+  $('main').classList.toggle('off', !d.deviceOn);
+  if (Date.now() > holdUntil) {
+    $('power').checked = !!d.deviceOn;
+    $('lock').checked = !!d.locked;
+    $('auto').classList.toggle('sel', d.schedulesMode == 'auto');
+    $('manual').classList.toggle('sel', d.schedulesMode != 'auto');
+  }
+  $('modeHint').textContent = d.schedulesMode == 'auto' ? 'Following schedules' : 'Manual target';
+  const heat = $('heat');
+  heat.hidden = d.state == null;
+  heat.textContent = d.state == 'heating' ? 'Heating' : 'Idle';
+  heat.classList.toggle('heat', d.state == 'heating');
+  $('floor').hidden = !d.floorTemperature;
+  $('floor').textContent = 'Floor ' + fmt(d.floorTemperature) + ' °C';
+  $('lockb').hidden = !d.locked;
+  ['allTemp'].forEach(id => { $(id).step = d.step; });
+  renderSchedules();
+}
+
+function dayCount() {
+  return s.days > 12 ? 3 : (s.days > 6 ? 2 : 1);
+}
+
+function renderSchedules() {
+  if (!s.schedules) return;
+  $('sched').hidden = false;
+  const n = dayCount();
+  if (day >= n) day = 0;
+  if ($('tabs').childElementCount != n) {
+    $('tabs').innerHTML = '';
+    for (let i = 0; i < n; i++) {
+      const b = document.createElement('button');
+      b.textContent = DAYS[i][1];
+      b.onclick = () => { day = i; renderSchedules(); };
+      $('tabs').appendChild(b);
+    }
+  }
+  [...$('tabs').children].forEach((b, i) => b.classList.toggle('sel', i == day));
+  const nowDay = s.period >= 0 ? Math.floor(s.period / 18) : -1;
+  const nowPeriod = s.period >= 0 ? Math.floor((s.period % 18) / 3) : -1;
+  const c = DAYS[day][0], body = $('periods');
+  if (body.dataset.day != c) {
+    body.dataset.day = c;
+    body.innerHTML = '';
+    for (let p = 1; p <= 6; p++) {
+      if (s.schedules[c + p + 'h'] == null) break;
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td class="muted">' + p + '</td><td><input type="time" data-k="' + c + p + 'h"></td>' +
+        '<td><input type="number" min="5" max="35" data-k="' + c + p + 't"></td>';
+      body.appendChild(tr);
+    }
+    body.querySelectorAll('input').forEach(i => i.oninput = () => edit(i));
+  }
+  body.querySelectorAll('input').forEach(i => {
+    const k = i.dataset.k;
+    i.step = k.endsWith('t') ? s.step : 60;
+    if (!(k in dirty) && document.activeElement !== i) {
+      i.value = k.endsWith('t') ? fmt(s.schedules[k]) : s.schedules[k];
+    }
+    i.classList.toggle('dirty', k in dirty);
+  });
+  [...body.children].forEach((tr, p) => tr.classList.toggle('now', day == nowDay && p == nowPeriod && s.schedulesMode == 'auto'));
+  const values = Object.keys(s.schedules).filter(k => k.endsWith('t')).map(k => s.schedules[k]);
+  if (document.activeElement !== $('allTemp')) {
+    $('allTemp').value = values.every(v => v == values[0]) ? fmt(values[0]) : '';
+  }
+}
+
+function edit(input) {
+  const k = input.dataset.k, orig = k.endsWith('t') ? fmt(s.schedules[k]) : s.schedules[k];
+  if (input.value === '' || input.value == orig) delete dirty[k];
+  else dirty[k] = input.value;
+  input.classList.toggle('dirty', k in dirty);
+  $('save').disabled = $('undo').disabled = !Object.keys(dirty).length;
+}
+
+function changeTarget(delta) {
+  if (!s) return;
+  const step = s.step || 0.5;
+  const base = pendingTarget != null ? pendingTarget : s.targetTemperature;
+  pendingTarget = Math.min(35, Math.max(5, Math.round((base + delta * step) / step) * step));
+  $('target').textContent = fmt(pendingTarget);
+  clearTimeout(targetTimer);
+  targetTimer = setTimeout(() => {
+    const t = pendingTarget;
+    pendingTarget = null;
+    set({targetTemperature: t});
+  }, 700);
+}
+
+$('minus').onclick = () => changeTarget(-1);
+$('plus').onclick = () => changeTarget(1);
+$('power').onchange = e => set({deviceOn: e.target.checked});
+$('lock').onchange = e => set({locked: e.target.checked});
+$('auto').onclick = () => set({schedulesMode: 'auto'});
+$('manual').onclick = () => set({schedulesMode: 'off'});
+
+$('save').onclick = async () => {
+  for (const k in dirty) {
+    if (k.endsWith('t') && (dirty[k] < 5 || dirty[k] > 35)) return toast('Temperature 5–35 °C');
+  }
+  try {
+    const sent = dirty;
+    dirty = {};
+    $('save').disabled = $('undo').disabled = true;
+    render(await api('/api/schedules', sent));
+    toast('Schedules saved');
+  } catch (e) {
+    toast('Not saved');
+  }
+  setTimeout(refresh, 1500);
+};
+
+$('undo').onclick = () => {
+  dirty = {};
+  $('save').disabled = $('undo').disabled = true;
+  document.activeElement.blur();
+  renderSchedules();
+};
+
+$('allSet').onclick = () => {
+  const t = Number($('allTemp').value);
+  if (!(t >= 5 && t <= 35)) return toast('Temperature 5–35 °C');
+  dirty = {};
+  $('save').disabled = $('undo').disabled = true;
+  set({schedulesTemperature: t});
+  toast('All periods set to ' + fmt(t) + ' °C');
+};
+
+refresh();
+setInterval(() => { if (!document.hidden) refresh(); }, 5000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+</script>
+</body>
+</html>

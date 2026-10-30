@@ -5,6 +5,7 @@
 #include <ESP8266WiFi.h>
 #include "WTuyaDevice.h"
 #include "WClock.h"
+#include "WDashboard.h"
 
 #define COUNT_DEVICE_MODELS 6
 #define MODEL_BHT_002_GBLW 0
@@ -54,6 +55,12 @@ public :
     schedulesPage->setPrintPage(std::bind(&WThermostat::printConfigSchedulesPage, this, std::placeholders::_1, std::placeholders::_2));
     schedulesPage->setSubmittedPage(std::bind(&WThermostat::submitConfigSchedulesPage, this, std::placeholders::_1, std::placeholders::_2));
     network->addCustomPage(schedulesPage);
+    //Dashboard at '/', generated from web/dashboard.html. Menu moves to '/config'
+    network->setRootHandler([](AsyncWebServerRequest* request) {
+      AsyncWebServerResponse* response = request->beginResponse_P(200, TEXT_HTML, DASHBOARD_HTML_GZ, DASHBOARD_HTML_GZ_LEN);
+      response->addHeader("Content-Encoding", "gzip");
+      request->send(response);
+    });
   }
 
   virtual void configureCommandBytes() {
@@ -266,6 +273,75 @@ public :
 				}
       }
     }
+  }
+
+  virtual void bindWebServerCalls(AsyncWebServer* webServer) {
+    //API for the dashboard
+    webServer->on("/api/state", HTTP_GET, std::bind(&WThermostat::sendApiState, this, std::placeholders::_1));
+    webServer->on("/api/set", HTTP_POST, std::bind(&WThermostat::handleApiSet, this, std::placeholders::_1));
+    webServer->on("/api/schedules", HTTP_POST, std::bind(&WThermostat::handleApiSchedules, this, std::placeholders::_1));
+  }
+
+  void sendApiState(AsyncWebServerRequest* request) {
+    AsyncResponseStream* response = request->beginResponseStream(APPLICATION_JSON);
+    WJson json(response);
+    json.beginObject();
+    json.propertyString("idx", network()->getIdx());
+    json.propertyString("firmware", this->firmware);
+    json.propertyDouble("step", 1.0 / this->temperatureFactor);
+    this->properties()->forEach([&json](WProperty* property) {
+      property->toJsonValue(&json);
+    });
+    if (receivedSchedules()) {
+      json.propertyInteger("days", this->byteSchedulingDays);
+      json.propertyInteger("period", this->currentSchedulePeriod);
+      json.beginObject(SCHEDULES);
+      for (byte sd = 0; sd < 3; sd++) {
+        this->toJsonSchedules(&json, sd);
+      }
+      json.endObject();
+    }
+    json.endObject();
+    request->send(response);
+  }
+
+  void handleApiSet(AsyncWebServerRequest* request) {
+    //Same as MQTT set, but only for the properties the dashboard changes
+    for (size_t i = 0; i < request->params(); i++) {
+      AsyncWebParameter* param = request->getParam(i);
+      WProperty* property = this->getPropertyById(param->name().c_str());
+      if (property == nullptr) continue;
+      if ((property == this->targetTemperature) || (property == this->schedulesTemperature)) {
+        double temp = param->value().toDouble();
+        if ((temp < 5.0) || (temp > 35.0)) continue;
+      } else if (property == this->schedulesMode) {
+        if ((!param->value().equals(SCHEDULES_MODE_AUTO)) && (!param->value().equals(SCHEDULES_MODE_OFF))) continue;
+      } else if ((property != this->deviceOn) && (property != this->locked)) {
+        continue;
+      }
+      property->parse(param->value().c_str());
+    }
+    sendApiState(request);
+  }
+
+  void handleApiSchedules(AsyncWebServerRequest* request) {
+    //Changed periods only, e.g. w1h=06:00&w1t=21.5. Written to MCU without restart
+    if (receivedSchedules()) {
+      schedulesChanged = false;
+      for (size_t i = 0; i < request->params(); i++) {
+        AsyncWebParameter* param = request->getParam(i);
+        if (param->name().length() != 3) continue;
+        if (param->name().charAt(2) == 't') {
+          double temp = param->value().toDouble();
+          if ((temp < 5.0) || (temp > 35.0)) continue;
+        }
+        processSchedulesKeyValue(param->name().c_str(), param->value().c_str());
+      }
+      if (schedulesChanged) {
+        this->schedulesToMcu();
+      }
+    }
+    sendApiState(request);
   }
 
   void sendSchedules(AsyncWebServerRequest* request) {

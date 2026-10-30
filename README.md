@@ -2,7 +2,7 @@
 
 [![GitHub version](https://img.shields.io/github/release/mf-1/WThermostatBeca.svg)](https://github.com/mf-1/WThermostatBeca/releases/latest)
 
-Fork of [klausahrenberg/WThermostatBeca](https://github.com/klausahrenberg/WThermostatBeca) with bug fixes, time zone selection with automatic day saving time, Home Assistant MQTT discovery and an access point watchdog. See the [releases](https://github.com/mf-1/WThermostatBeca/releases) for details.
+Fork of [klausahrenberg/WThermostatBeca](https://github.com/klausahrenberg/WThermostatBeca) with bug fixes, time zone selection with automatic day saving time, Home Assistant MQTT discovery, an access point watchdog and a web dashboard. See the [releases](https://github.com/mf-1/WThermostatBeca/releases) for details.
 
 Replaces original Tuya firmware on Beca thermostat with ESP8266 wifi module. The firmware is tested with following devices:
 * BHT-002, BHT-6000, BHT-3000 (floor heating)
@@ -35,6 +35,7 @@ For productive use only stable version 1.19. Version 1.20x_beta is rewritten to 
 ## Features
 * No Tuya cloud connection anymore
 * Enables thermostat to communicate via MQTT and/or Mozilla Webthings
+* Dashboard at `http://<device_ip>/`: temperatures, target, power, mode, child lock and schedules (saved without restart)
 * Configuration of connection and device parameters via web interface
 * NTP and time zone synchronisation to set the clock of thermostat
 * Reading and setting of all parameters via MQTT
@@ -48,9 +49,10 @@ To install the firmware, follow instructions here: [Flashing.md](Flashing.md)
 Devices already running this firmware can be updated via `http://<device_ip>/firmware`.
 ## Initial configuration
 To setup the device model, network options and other parameters, follow instrcution here: [Configuration.md](Configuration.md)  
-After initial setup, the device configuration is still available via `http://<device_ip>/config`  
+After initial setup, the device configuration is still available via `http://<device_ip>/config`, the dashboard via `http://<device_ip>/`  
 ## Integration in Webthings
 This firmware supports Mozilla Webthings directly. With Webthings you can control the device via the Gateway - inside and also outside of your home network. No clunky VPN, dynDNS solutions needed to access your home devices. I recommend to run the gateway in parallel to an MQTT server and for example Node-Red. Via MQTT you can control the device completely and logic can be done by Node-Red. Webthings is used for outside control of main parameters.  
+Since 1.38.12 the Webthings device structure is at `http://<device_ip>/things` (the dashboard took over `/`).  
 Add the device to the gateway via '+' icon. After that you have the new nice and shiny icon in the dashboard:  
 ![webthing_icon](https://github.com/klausahrenberg/WThermostatBeca/blob/master/docs/Webthing_Icon.png)  
 The icon shows the actual temperature and heating state.  
@@ -120,13 +122,15 @@ Send a complete json structure with changed parameters to `<your_mqtt_topic>/the
 Send a json with changed schedules to `<your_mqtt_topic>/things/thermostat/schedules`.
 
 ### Build this firmware from source
-The project builds with [PlatformIO](https://platformio.org/) (command line or the VS Code extension). All dependencies, including [WAdapter](https://github.com/klausahrenberg/WAdapter), are fetched automatically with the versions pinned in [platformio.ini](platformio.ini).
+The project builds with [PlatformIO](https://platformio.org/) (command line or the VS Code extension). All dependencies, including [WAdapter](https://github.com/mf-1/WAdapter/tree/mf) (fork of Klaus' v1.38 with the modern page style), are fetched automatically with the versions pinned in [platformio.ini](platformio.ini).
 ```
 git clone https://github.com/mf-1/WThermostatBeca.git
 cd WThermostatBeca
 pio run
 ```
 The firmware is written to `.pio/build/esp01_1m/firmware.bin`.
+
+The dashboard source is [web/dashboard.html](web/dashboard.html); it is compressed into the firmware at build time.
 
 To build and upload in one step to a device already running this firmware (via its web interface, needs `curl`):
 ```
