@@ -962,12 +962,35 @@ protected :
   String haHeader(String uid, const char* name, const char* uidSuffix) {
     String p = "{\"~\":\"" + String(network()->mqttBaseTopic()) + "/" + String(this->id()) + "\"";
     p += ",\"name\":\"" + String(name) + "\",\"uniq_id\":\"" + uid + uidSuffix + "\"";
-    p += ",\"dev\":{\"ids\":[\"" + uid + "\"],\"name\":\"" + String(network()->getIdx()) + "\"";
+    p += ",\"dev\":{\"ids\":[\"" + haDeviceId() + "\"],\"name\":\"" + String(network()->getIdx()) + "\"";
     p += ",\"cu\":\"http://" + network()->getDeviceIp().toString() + "/\"}";
     //Offline by last will (alive: false) on the device info topic
     p += ",\"avty_t\":\"~/" + String(network()->mqttStateTopic()) + "\"";
     p += F(",\"avty_tpl\":\"{{ 'online' if value_json.alive else 'offline' }}\"");
     return p;
+  }
+
+  String haDeviceId() {
+    //openHAB builds the thing id from the device id and encodes all except letters and digits (beca-office -> beca_2Doffice)
+    //Camel case without separators instead: beca-living-room -> becaLivingRoom
+    String idx = String(network()->getIdx());
+    String result = "";
+    bool upper = false;
+    for (unsigned int i = 0; i < idx.length(); i++) {
+      char c = idx[i];
+      if (!isAlphaNumeric(c)) {
+        upper = (result.length() > 0);
+      } else {
+        if (result.length() == 0) {
+          c = tolower(c);
+        } else if (upper) {
+          c = toupper(c);
+        }
+        result += c;
+        upper = false;
+      }
+    }
+    return result;
   }
 
   String haState(const char* topicKey, const char* templateKey, const char* property, const char* valueTemplate) {

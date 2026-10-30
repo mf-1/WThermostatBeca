@@ -59,6 +59,28 @@ The icon shows the actual temperature and heating state.
 There is also a detailed view available:  
 <img src="https://github.com/klausahrenberg/WThermostatBeca/blob/master/docs/Webthing_Complete.png" width="400">
 
+## Home Assistant / openHAB MQTT discovery
+After every MQTT (re)connect the device publishes retained discovery configs (a reboot forces it):
+* `homeassistant/climate/<hostname>/config`: thermostat (actual and target temperature, on/off, auto mode, heating state)
+* `homeassistant/number/<hostname>_schedules_temperature/config`: one temperature for all schedule periods
+
+The device is shown as offline when the last will (`"alive":false`) is published on `<your_mqtt_topic>/thermostat/<your_state_topic>`.
+
+Since 1.38.14 the device id is the hostname in camel case without separators, starting lowercase. openHAB builds the thing id from it (other characters than letters and digits would be encoded, e.g. `beca-living-room` → `beca_2Dliving_2Droom`):
+
+| Hostname | Device / thing id |
+|---|---|
+| `beca-office` | `becaOffice` |
+| `beca-kitchen` | `becaKitchen` |
+| `beca-living-room` | `becaLivingRoom` |
+
+The device name (hostname), unique ids and MQTT topics are unchanged.  
+After renaming a device, clear the retained topics of the old name, otherwise the old device stays in the openHAB inbox:
+```
+mosquitto_pub -r -n -t homeassistant/climate/<old_hostname>/config
+mosquitto_pub -r -n -t homeassistant/number/<old_hostname>_schedules_temperature/config
+```
+
 ## Json structure
 Firmware provides 3 different json messages:
 1. State report  
