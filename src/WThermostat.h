@@ -291,6 +291,7 @@ public :
     webServer->on("/api/state", HTTP_GET, std::bind(&WThermostat::sendApiState, this, std::placeholders::_1));
     webServer->on("/api/set", HTTP_POST, std::bind(&WThermostat::handleApiSet, this, std::placeholders::_1));
     webServer->on("/api/schedules", HTTP_POST, std::bind(&WThermostat::handleApiSchedules, this, std::placeholders::_1));
+    webServer->on("/api/reboot", HTTP_POST, std::bind(&WThermostat::handleApiReboot, this, std::placeholders::_1));
   }
 
   void sendApiState(AsyncWebServerRequest* request) {
@@ -333,6 +334,12 @@ public :
       property->parse(param->value().c_str());
     }
     sendApiState(request);
+  }
+
+  void handleApiReboot(AsyncWebServerRequest* request) {
+    //Reboot only, settings are kept. Restart follows in the network loop after the response
+    request->send(200, "application/json", "{\"reboot\":true}");
+    network()->restart();
   }
 
   void handleApiSchedules(AsyncWebServerRequest* request) {

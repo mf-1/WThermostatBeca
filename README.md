@@ -50,6 +50,7 @@ Devices already running this firmware can be updated via `http://<device_ip>/fir
 ## Initial configuration
 To setup the device model, network options and other parameters, follow instrcution here: [Configuration.md](Configuration.md)  
 After initial setup, the device configuration is still available via `http://<device_ip>/config`, the dashboard via `http://<device_ip>/`  
+Reboot (settings are kept): `curl -X POST http://<device_ip>/api/reboot`  
 ## Integration in Webthings
 This firmware supports Mozilla Webthings directly. With Webthings you can control the device via the Gateway - inside and also outside of your home network. No clunky VPN, dynDNS solutions needed to access your home devices. I recommend to run the gateway in parallel to an MQTT server and for example Node-Red. Via MQTT you can control the device completely and logic can be done by Node-Red. Webthings is used for outside control of main parameters.  
 Since 1.38.12 the Webthings device structure is at `http://<device_ip>/things` (the dashboard took over `/`).  
