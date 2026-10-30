@@ -44,6 +44,7 @@ public :
     this->currentSchedulePeriod = -1;
     this->updatingTargetTemperature = false;
     this->lastMqttConnected = false;
+    this->firmware = "";
     //HtmlPages
     WPage* configPage = new WPage(this->id(), "Configure thermostat");
     configPage->setPrintPage(std::bind(&WThermostat::printConfigPage, this, std::placeholders::_1, std::placeholders::_2));
@@ -68,6 +69,10 @@ public :
     this->byteSchedulingPosHour = 1;
     this->byteSchedulingPosMinute = 0;
     this->byteSchedulingDays = 18;
+  }
+
+  void firmwareVersion(const char* firmware) {
+    this->firmware = firmware;
   }
 
   virtual bool isDeviceStateComplete() {
@@ -327,6 +332,7 @@ public :
     //Home Assistant MQTT discovery, after every (re)connect
     bool mqttConnected = network()->isMqttConnected();
     if ((mqttConnected) && (!lastMqttConnected)) {
+      sendDeviceInfo();
       sendHomeAssistantDiscovery();
     }
     lastMqttConnected = mqttConnected;
@@ -516,6 +522,8 @@ protected :
     } else if (cByte == byteSchedules) {
       this->schedulesReceived = this->processStatusSchedules(commandLength);
       knownCommand = this->schedulesReceived;
+      //Publish target temperature of auto mode immediately, not only at next complete state
+      if (this->schedulesReceived) updateTargetTemperature();
     }
     if (changed) {
       notifyState();
@@ -612,9 +620,13 @@ protected :
           (this->schedulesMode->equalsString(SCHEDULES_MODE_OFF))) {
         this->schedulesMode->asString(SCHEDULES_MODE_AUTO);
       }
-      this->currentSchedulePeriod = newPeriod;
-    } else {
+      if (newPeriod != this->currentSchedulePeriod) {
+        this->currentSchedulePeriod = newPeriod;
+        updateTargetTemperature();
+      }
+    } else if (this->currentSchedulePeriod != -1) {
       this->currentSchedulePeriod = -1;
+      updateTargetTemperature();
     }
   }
 
@@ -803,45 +815,67 @@ protected :
     updatingTargetTemperature = false;
   }
 
+  void sendDeviceInfo() {
+    //With separate MQTT messages, WAdapter sends idx, ip, alive and firmware only as last will
+    //(alive: false). Overwrite it once connected.
+    if (sendCompleteDeviceState()) return;
+    String topic = String(network()->mqttBaseTopic()) + "/" + String(this->id()) + "/" + String(network()->mqttStateTopic());
+    WStringStream* response = network()->getResponseStream();
+    WJson json(response);
+    json.beginObject();
+    json.propertyString("idx", network()->getIdx());
+    json.propertyString("ip", network()->getDeviceIp().toString().c_str());
+    if (network()->isLastWillEnabled()) {
+      json.propertyBoolean("alive", true);
+    }
+    json.propertyString("firmware", this->firmware);
+    json.endObject();
+    network()->publishMqtt(topic.c_str(), response, true);
+  }
+
   void sendHomeAssistantDiscovery() {
     //Config topic: homeassistant/<component>/<unique id>/config, retained
+    //Abbreviated keys (e.g. avty_t = availability_topic) to stay below SIZE_JSON_PACKET
     String uid = String(network()->getIdx());
     for (unsigned int i = 0; i < uid.length(); i++) {
       if ((!isAlphaNumeric(uid[i])) && (uid[i] != '-') && (uid[i] != '_')) uid.setCharAt(i, '_');
     }
     String step = String(1.0f / this->temperatureFactor, 1);
     String p = haHeader(uid, "Thermostat", "_thermostat");
-    p += haState("current_temperature_topic", "current_temperature_template", "temperature", "");
-    p += haState("temperature_state_topic", "temperature_state_template", "targetTemperature", "");
-    p += haCommand("temperature_command_topic", "targetTemperature");
+    p += haState("curr_temp_t", "curr_temp_tpl", "temperature", "");
+    p += haState("temp_stat_t", "temp_stat_tpl", "targetTemperature", "");
+    p += haCommand("temp_cmd_t", "targetTemperature");
     p += F(",\"modes\":[\"heat\",\"off\"]");
-    p += haState("mode_state_topic", "mode_state_template", "deviceOn", "{{ 'heat' if VALUE in [true, 'true'] else 'off' }}");
-    p += haCommand("mode_command_topic", "deviceOn");
-    p += F(",\"mode_command_template\":\"{{ 'true' if value == 'heat' else 'false' }}\"");
-    p += F(",\"preset_modes\":[\"auto\"]");
-    p += haState("preset_mode_state_topic", "preset_mode_value_template", "schedulesMode", "{{ 'auto' if VALUE == 'auto' else 'none' }}");
-    p += haCommand("preset_mode_command_topic", "schedulesMode");
-    p += F(",\"preset_mode_command_template\":\"{{ 'auto' if value == 'auto' else 'off' }}\"");
+    p += haState("mode_stat_t", "mode_stat_tpl", "deviceOn", "{{ 'heat' if VALUE in [true, 'true'] else 'off' }}");
+    p += haCommand("mode_cmd_t", "deviceOn");
+    p += F(",\"mode_cmd_tpl\":\"{{ 'true' if value == 'heat' else 'false' }}\"");
+    p += F(",\"pr_modes\":[\"auto\"]");
+    p += haState("pr_mode_stat_t", "pr_mode_val_tpl", "schedulesMode", "{{ 'auto' if VALUE == 'auto' else 'none' }}");
+    p += haCommand("pr_mode_cmd_t", "schedulesMode");
+    p += F(",\"pr_mode_cmd_tpl\":\"{{ 'auto' if value == 'auto' else 'off' }}\"");
     if (this->state != nullptr) {
-      p += haState("action_topic", "action_template", "state", "{{ 'heating' if VALUE == 'heating' else 'idle' }}");
+      p += haState("act_t", "act_tpl", "state", "{{ 'heating' if VALUE == 'heating' else 'idle' }}");
     }
     //precision 0.1: always show one decimal (30.5), steps from temp_step
-    p += ",\"min_temp\":5,\"max_temp\":35,\"temp_step\":" + step + ",\"precision\":0.1,\"temperature_unit\":\"C\"}";
+    p += ",\"min_temp\":5,\"max_temp\":35,\"temp_step\":" + step + ",\"precision\":0.1,\"temp_unit\":\"C\"}";
     haPublish("climate", uid, p);
     if (this->schedulesTemperature != nullptr) {
       p = haHeader(uid, "Schedules temperature", "_schedules_temperature");
-      p += haState("state_topic", "value_template", "schedulesTemperature", "");
-      p += haCommand("command_topic", "schedulesTemperature");
-      p += ",\"min\":5,\"max\":35,\"step\":" + step + ",\"mode\":\"box\",\"unit_of_measurement\":\"\u00b0C\"}";
+      p += haState("stat_t", "val_tpl", "schedulesTemperature", "");
+      p += haCommand("cmd_t", "schedulesTemperature");
+      p += ",\"min\":5,\"max\":35,\"step\":" + step + ",\"mode\":\"box\",\"unit_of_meas\":\"\u00b0C\"}";
       haPublish("number", uid + "_schedules_temperature", p);
     }
   }
 
   String haHeader(String uid, const char* name, const char* uidSuffix) {
     String p = "{\"~\":\"" + String(network()->mqttBaseTopic()) + "/" + String(this->id()) + "\"";
-    p += ",\"name\":\"" + String(name) + "\",\"unique_id\":\"" + uid + uidSuffix + "\"";
-    p += ",\"device\":{\"identifiers\":[\"" + uid + "\"],\"name\":\"" + String(network()->getIdx()) + "\"";
-    p += ",\"configuration_url\":\"http://" + network()->getDeviceIp().toString() + "/\"}";
+    p += ",\"name\":\"" + String(name) + "\",\"uniq_id\":\"" + uid + uidSuffix + "\"";
+    p += ",\"dev\":{\"ids\":[\"" + uid + "\"],\"name\":\"" + String(network()->getIdx()) + "\"";
+    p += ",\"cu\":\"http://" + network()->getDeviceIp().toString() + "/\"}";
+    //Offline by last will (alive: false) on the device info topic
+    p += ",\"avty_t\":\"~/" + String(network()->mqttStateTopic()) + "\"";
+    p += F(",\"avty_tpl\":\"{{ 'online' if value_json.alive else 'offline' }}\"");
     return p;
   }
 
@@ -892,6 +926,7 @@ protected :
 private :
   unsigned long lastNotify, lastScheduleNotify, lastRelayPinNotify;
   bool schedulesChanged, schedulesReceived, updatingTargetTemperature, lastMqttConnected;
+  const char* firmware;
   int currentSchedulePeriod;
 
 

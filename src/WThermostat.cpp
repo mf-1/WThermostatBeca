@@ -13,7 +13,7 @@
 #include "WThermostat_DLX_LH01.h"
 
 #define APPLICATION "Thermostat"
-#define VERSION "1.38.10"
+#define VERSION "1.38.11"
 #define FLAG_SETTINGS 0x12
 #define DEBUG false
 
@@ -71,6 +71,7 @@ void setup() {
 		  network->error(F("Can't start device. Wrong thermostatModel (%d)"), thermostatModel->asByte());
 	}
 	if (device != nullptr) {
+		device->firmwareVersion(VERSION);
 		device->configureCommandBytes();
 		device->initializeProperties();
 	}
