@@ -56,6 +56,7 @@ public :
     this->currentSchedulePeriod = -1;
     this->updatingTargetTemperature = false;
     this->lastMqttConnected = false;
+    this->floorDiscoverySent = false;
     this->firmware = "";
     //HtmlPages
     WPage* configPage = new WPage(this->id(), "Configure thermostat");
@@ -428,8 +429,14 @@ public :
     if ((mqttConnected) && (!lastMqttConnected)) {
       sendDeviceInfo();
       sendHomeAssistantDiscovery();
+      floorDiscoverySent = false;
     }
     lastMqttConnected = mqttConnected;
+    //Floor temperature only if a sensor is connected (value is 0 without)
+    if ((mqttConnected) && (!floorDiscoverySent) && (actualFloorTemperature != nullptr) && (actualFloorTemperature->asDouble() != 0.0)) {
+      floorDiscoverySent = true;
+      sendHomeAssistantFloorDiscovery();
+    }
     updateCurrentSchedulePeriod();
     if (receivedSchedules()) {
       //Notify schedules
@@ -932,12 +939,10 @@ protected :
   }
 
   void sendHomeAssistantDiscovery() {
-    //Config topic: homeassistant/<component>/<unique id>/config, retained
+    //Config topic: homeassistant/<component>/<hostname>/<object id>/config, retained
+    //openHAB builds the channel id from the object id: becaOffice:locked instead of becaOffice:beca_office_locked
     //Abbreviated keys (e.g. avty_t = availability_topic) to stay below SIZE_JSON_PACKET
-    String uid = String(network()->getIdx());
-    for (unsigned int i = 0; i < uid.length(); i++) {
-      if ((!isAlphaNumeric(uid[i])) && (uid[i] != '-') && (uid[i] != '_')) uid.setCharAt(i, '_');
-    }
+    String uid = haUid();
     String step = String(1.0f / this->temperatureFactor, 1);
     String p = haHeader(uid, "Thermostat", "_thermostat");
     p += haState("curr_temp_t", "curr_temp_tpl", "temperature", "");
@@ -947,8 +952,9 @@ protected :
     p += haState("mode_stat_t", "mode_stat_tpl", "deviceOn", "{{ 'heat' if VALUE in [true, 'true'] else 'off' }}");
     p += haCommand("mode_cmd_t", "deviceOn");
     p += F(",\"mode_cmd_tpl\":\"{{ 'true' if value == 'heat' else 'false' }}\"");
-    p += F(",\"pr_modes\":[\"auto\"]");
-    p += haState("pr_mode_stat_t", "pr_mode_val_tpl", "schedulesMode", "{{ 'auto' if VALUE == 'auto' else 'none' }}");
+    //Manual instead of HA's 'none', as in the dashboard
+    p += F(",\"pr_modes\":[\"auto\",\"manual\"]");
+    p += haState("pr_mode_stat_t", "pr_mode_val_tpl", "schedulesMode", "{{ 'auto' if VALUE == 'auto' else 'manual' }}");
     p += haCommand("pr_mode_cmd_t", "schedulesMode");
     p += F(",\"pr_mode_cmd_tpl\":\"{{ 'auto' if value == 'auto' else 'off' }}\"");
     if (this->state != nullptr) {
@@ -956,25 +962,74 @@ protected :
     }
     //precision 0.1: always show one decimal (30.5), steps from temp_step
     p += ",\"min_temp\":5,\"max_temp\":35,\"temp_step\":" + step + ",\"precision\":0.1,\"temp_unit\":\"C\"}";
-    haPublish("climate", uid, p);
+    haPublish("climate", uid, "thermostat", p);
     if (this->schedulesTemperature != nullptr) {
-      p = haHeader(uid, "Schedules temperature", "_schedules_temperature");
+      p = haHeader(uid, "Scheduled temperature (all periods)", "_schedules_temperature");
       p += haState("stat_t", "val_tpl", "schedulesTemperature", "");
       p += haCommand("cmd_t", "schedulesTemperature");
       p += ",\"min\":5,\"max\":35,\"step\":" + step + ",\"mode\":\"box\",\"unit_of_meas\":\"\u00b0C\"}";
-      haPublish("number", uid + "_schedules_temperature", p);
+      haPublish("number", uid, "schedules_temperature", p);
     }
+    p = haHeader(uid, "Child lock", "_locked");
+    p += haState("stat_t", "val_tpl", "locked", "{{ 'true' if VALUE in [true, 'true'] else 'false' }}");
+    p += haCommand("cmd_t", "locked");
+    p += F(",\"pl_on\":\"true\",\"pl_off\":\"false\",\"stat_on\":\"true\",\"stat_off\":\"false\",\"ic\":\"mdi:lock\"}");
+    haPublish("switch", uid, "locked", p);
+    haClearLegacy(uid);
+  }
+
+  void haClearLegacy(String uid) {
+    //Topics before 1.38.16 (homeassistant/<component>/<object id>/config), otherwise openHAB keeps them in the thing
+    const char* legacy[][2] = {{"climate", ""}, {"number", "_schedules_temperature"}, {"switch", "_locked"}, {"sensor", "_floor_temperature"}};
+    for (auto& l : legacy) {
+      String topic = "homeassistant/" + String(l[0]) + "/" + uid + String(l[1]) + "/config";
+      WStringStream* response = network()->getResponseStream();
+      network()->publishMqtt(topic.c_str(), response, true);
+    }
+  }
+
+  void sendHomeAssistantFloorDiscovery() {
+    String uid = haUid();
+    String p = haHeader(uid, "Floor temperature", "_floor_temperature");
+    p += haState("stat_t", "val_tpl", "floorTemperature", "");
+    p += F(",\"dev_cla\":\"temperature\",\"stat_cla\":\"measurement\",\"unit_of_meas\":\"\u00b0C\"}");
+    haPublish("sensor", uid, "floor_temperature", p);
+  }
+
+  String haUid() {
+    String uid = String(network()->getIdx());
+    for (unsigned int i = 0; i < uid.length(); i++) {
+      if ((!isAlphaNumeric(uid[i])) && (uid[i] != '-') && (uid[i] != '_')) uid.setCharAt(i, '_');
+    }
+    return uid;
   }
 
   String haHeader(String uid, const char* name, const char* uidSuffix) {
     String p = "{\"~\":\"" + String(network()->mqttBaseTopic()) + "/" + String(this->id()) + "\"";
     p += ",\"name\":\"" + String(name) + "\",\"uniq_id\":\"" + uid + uidSuffix + "\"";
     p += ",\"dev\":{\"ids\":[\"" + haDeviceId() + "\"],\"name\":\"" + String(network()->getIdx()) + "\"";
+    p += haModel() + ",\"sw\":\"" + String(this->firmware) + "\"";
     p += ",\"cu\":\"http://" + network()->getDeviceIp().toString() + "/\"}";
     //Offline by last will (alive: false) on the device info topic
     p += ",\"avty_t\":\"~/" + String(network()->mqttStateTopic()) + "\"";
     p += F(",\"avty_tpl\":\"{{ 'online' if value_json.alive else 'offline' }}\"");
     return p;
+  }
+
+  String haModel() {
+    //Manufacturer and model family of the configured model, the exact variant (e.g. BHT-002GALW) is unknown
+    switch (thermostatModel->asByte()) {
+      case MODEL_BHT_002_GBLW : return F(",\"mf\":\"Moes\",\"mdl\":\"BHT-002\"");
+      case MODEL_BAC_002_ALW : return F(",\"mf\":\"Moes\",\"mdl\":\"BAC-002\"");
+      case MODEL_ET81W : return F(",\"mdl\":\"ET-81W\"");
+      case MODEL_HY08WE : return F(",\"mf\":\"Floureon\",\"mdl\":\"HY08WE\"");
+      case MODEL_ME81H : return F(",\"mf\":\"AVATTO\",\"mdl\":\"ME81AH\"");
+      case MODEL_MK70GBH : return F(",\"mf\":\"Minco Heat\",\"mdl\":\"MK70GB-H\"");
+      case MODEL_ME102H : return F(",\"mf\":\"AVATTO\",\"mdl\":\"ME102H\"");
+      case MODEL_CALYPSOW : return F(",\"mf\":\"VH Control\",\"mdl\":\"Calypso-W\"");
+      case MODEL_DLX_LH01 : return F(",\"mdl\":\"DLX-LH01\"");
+    }
+    return "";
   }
 
   String haDeviceId() {
@@ -1021,8 +1076,8 @@ protected :
     return ",\"" + String(topicKey) + "\":\"~/" + String(network()->mqttSetTopic()) + "/" + String(property) + "\"";
   }
 
-  void haPublish(const char* component, String objectId, String& payload) {
-    String topic = "homeassistant/" + String(component) + "/" + objectId + "/config";
+  void haPublish(const char* component, String nodeId, const char* objectId, String& payload) {
+    String topic = "homeassistant/" + String(component) + "/" + nodeId + "/" + String(objectId) + "/config";
     if (topic.length() + payload.length() + 10 > SIZE_JSON_PACKET) {
       network()->error(F("HA discovery for %s too large (%d bytes)"), component, payload.length());
       return;
@@ -1046,7 +1101,7 @@ protected :
 
 private :
   unsigned long lastNotify, lastScheduleNotify, lastRelayPinNotify;
-  bool schedulesChanged, schedulesReceived, updatingTargetTemperature, lastMqttConnected;
+  bool schedulesChanged, schedulesReceived, updatingTargetTemperature, lastMqttConnected, floorDiscoverySent;
   const char* firmware;
   int currentSchedulePeriod;
 

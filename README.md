@@ -61,9 +61,19 @@ There is also a detailed view available:
 <img src="https://github.com/klausahrenberg/WThermostatBeca/blob/master/docs/Webthing_Complete.png" width="400">
 
 ## Home Assistant / openHAB MQTT discovery
-After every MQTT (re)connect the device publishes retained discovery configs (a reboot forces it):
-* `homeassistant/climate/<hostname>/config`: thermostat (actual and target temperature, on/off, auto mode, heating state)
-* `homeassistant/number/<hostname>_schedules_temperature/config`: one temperature for all schedule periods
+After every MQTT (re)connect the device publishes retained discovery configs to `homeassistant/<component>/<hostname>/<object_id>/config` (a reboot forces it):
+| Entity | Name | Dashboard | MQTT property |
+|---|---|---|---|
+| climate | Thermostat | Room, Target | `temperature`, `targetTemperature` |
+| ↳ mode `heat` / `off` | | Power | `deviceOn` |
+| ↳ preset `auto` / `manual` | | Auto / Manual | `schedulesMode` (`auto` / `off`) |
+| ↳ action `heating` / `idle` | | Heating / Idle | `state` |
+| number | Scheduled temperature (all periods) | All periods | `schedulesTemperature` |
+| switch | Child lock | Child lock | `locked` |
+| sensor | Floor temperature | Floor | `floorTemperature`, only published if a floor sensor reports a value |
+
+The device info contains manufacturer and model family of the configured model (e.g. Moes, BHT-002) and the firmware version.  
+The labels of the climate channels (mode, preset, action) are set by Home Assistant / openHAB. In openHAB, name the linked items like the dashboard.
 
 The device is shown as offline when the last will (`"alive":false`) is published on `<your_mqtt_topic>/thermostat/<your_state_topic>`.
 
@@ -75,11 +85,25 @@ Since 1.38.14 the device id is the hostname in camel case without separators, st
 | `beca-kitchen` | `becaKitchen` |
 | `beca-living-room` | `becaLivingRoom` |
 
-The device name (hostname), unique ids and MQTT topics are unchanged.  
+The device name (hostname), unique ids and MQTT topics are unchanged.
+
+Since 1.38.16 the object id (`thermostat`, `schedules_temperature`, `locked`, `floor_temperature`) is the last part of the discovery topic. openHAB builds the channel ids from it, without the hostname:
+
+| Entity | openHAB channel id |
+|---|---|
+| climate | `becaOffice:thermostat#current-temperature`, `#temperature`, `#mode`, `#preset-mode`, `#action` |
+| number | `becaOffice:schedules_temperature` |
+| switch | `becaOffice:locked` |
+| sensor | `becaOffice:floor_temperature` |
+
+The device clears the retained topics of the format before 1.38.16 by itself. After updating, re-add the thing in openHAB (remove the old topics from its configuration if they are still listed) and link the items to the new channels.
+
 After renaming a device, clear the retained topics of the old name, otherwise the old device stays in the openHAB inbox:
 ```
-mosquitto_pub -r -n -t homeassistant/climate/<old_hostname>/config
-mosquitto_pub -r -n -t homeassistant/number/<old_hostname>_schedules_temperature/config
+mosquitto_pub -r -n -t homeassistant/climate/<old_hostname>/thermostat/config
+mosquitto_pub -r -n -t homeassistant/number/<old_hostname>/schedules_temperature/config
+mosquitto_pub -r -n -t homeassistant/switch/<old_hostname>/locked/config
+mosquitto_pub -r -n -t homeassistant/sensor/<old_hostname>/floor_temperature/config
 ```
 
 ## Json structure
