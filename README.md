@@ -185,4 +185,6 @@ To build and upload in one step to a device already running this firmware (via i
 ```
 pio run -e ota -t upload --upload-port <device_ip>
 ```
+For several devices, [Makefile.example](Makefile.example) builds once and uploads to all of them, reboots them or shows their firmware versions (`cp Makefile.example Makefile`, enter your devices, then `make -k`, `make reboot`, `make status`).
+
 Alternatively upload the file via `http://<device_ip>/firmware`. For the first installation via serial, see [Flashing.md](Flashing.md) (`pio run -t upload --upload-port /dev/ttyUSB0` does the same as the esptool command there).

@@ -1,0 +1,44 @@
+# Helper to build, upload and reboot several thermostats.
+# Copy to Makefile and enter your devices (Makefile is not tracked, keep your addresses local):
+#   cp Makefile.example Makefile
+#
+#   make            build and upload to all devices
+#   make office     build and upload to one device
+#   make build      build only
+#   make -k         keep going if one device is offline
+#   make reboot     reboot all devices (reboot-office: one device), settings are kept
+#   make status     firmware version of all devices (status-office: one device)
+
+.RECIPEPREFIX = >
+
+# One line per thermostat: <name>_IP := <address>
+office_IP      := 192.0.2.11
+kitchen_IP     := 192.0.2.12
+living-room_IP := 192.0.2.13
+
+DEVICES := office kitchen living-room
+
+REBOOT := $(addprefix reboot-,$(DEVICES))
+STATUS := $(addprefix status-,$(DEVICES))
+
+.PHONY: all build reboot status $(DEVICES) $(REBOOT) $(STATUS)
+
+all: $(DEVICES)
+
+build:
+> pio run -e ota
+
+$(DEVICES): build
+> @echo "==> $@ ($($@_IP))"
+> pio run -e ota -t upload --upload-port $($@_IP)
+
+# Reboot without wiping settings (firmware 1.38.15+)
+reboot: $(REBOOT)
+
+$(REBOOT):
+> @curl -sf -m5 -o /dev/null -X POST http://$($(@:reboot-%=%)_IP)/api/reboot && echo "$(@:reboot-%=%): rebooting" || echo "$(@:reboot-%=%): offline"
+
+status: $(STATUS)
+
+$(STATUS):
+> @v=$$(curl -sf -m5 http://$($(@:status-%=%)_IP)/things/thermostat/properties | grep -o '"firmware":"[^"]*"' | cut -d'"' -f4); echo "$(@:status-%=%): $${v:-offline}"
