@@ -22,7 +22,8 @@ bundle:restart <id>
 Adjust the broker thing id (`local`) and the location groups (`room_*`), then paste the items into Developer Tools → Add Items from Textual Definition, or put the file into `$OPENHAB_CONF/items`.
 
 - **Heating control** (`heat` / `off`) is a Switch via the SCRIPT ECMAScript profile and needs the JavaScript Scripting add-on. The MAP profile only transforms device → item, commands would not reach the thermostat.
-- **Operation mode** and **State** are String items with options (Auto / Manual, Heating / Idle).
+- **Operation mode** is a String item with options (Auto / Manual).
+- **State** is a read-only Switch (`heating` → `ON`) via the ECMAScript profile, so the icon `fire` switches between `fire-on` and `fire-off`. As a String item, openHAB would look for `fire-heating` / `fire-idle` and always show the default flame. `listWidget="oh-label-item"` shows it as text (Heating / Idle) without a toggle.
 - Avoid the semantic tags `Switch` / `Power` on String items: Main UI then shows a toggle that sends `ON` / `OFF`, which the thermostat ignores.
 - Setpoints are limited to 5–35 °C in steps of 0.5 by the state description.
 

@@ -17,7 +17,7 @@ component: oh-list-item
 config:
   title: =props.title
   icon: =props.icon
-  iconColor: "=items[props.item.split('_')[0] + '_State'].state == 'heating' ? 'red' : 'gray'"
+  iconColor: "=items[props.item.split('_')[0] + '_State'].state == 'ON' ? 'red' : 'gray'"
   footer: "=(items[props.item.split('_')[0] + '_Temperature'].displayState || items[props.item.split('_')[0] + '_Temperature'].state) + ' · Mode: ' + (items[props.item.split('_')[0] + '_OperationMode'].displayState || items[props.item.split('_')[0] + '_OperationMode'].state) + ' · State: ' + (items[props.item.split('_')[0] + '_State'].displayState || items[props.item.split('_')[0] + '_State'].state)"
 slots:
   after:
