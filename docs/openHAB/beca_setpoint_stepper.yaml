@@ -1,0 +1,71 @@
+uid: beca_setpoint_stepper
+tags:
+  - WThermostatBeca
+props:
+  parameters:
+    - name: item
+      label: Item
+      description: Setpoint item, e.g. becaOffice_TargetTemperature. The prefix before '_' is used for _Temperature, _OperationMode and _State
+      context: item
+      required: true
+    - name: title
+      label: Title
+    - name: icon
+      label: Icon
+      default: oh:temperature
+component: oh-list-item
+config:
+  title: =props.title
+  icon: =props.icon
+  iconColor: "=items[props.item.split('_')[0] + '_State'].state == 'heating' ? 'red' : 'gray'"
+  footer: "=(items[props.item.split('_')[0] + '_Temperature'].displayState || items[props.item.split('_')[0] + '_Temperature'].state) + ' · Mode: ' + (items[props.item.split('_')[0] + '_OperationMode'].displayState || items[props.item.split('_')[0] + '_OperationMode'].state) + ' · State: ' + (items[props.item.split('_')[0] + '_State'].displayState || items[props.item.split('_')[0] + '_State'].state)"
+slots:
+  after:
+    - component: div
+      config:
+        style:
+          display: flex
+          align-items: center
+          gap: 6px
+      slots:
+        default:
+          - component: oh-button
+            config:
+              text: "−"
+              outline: true
+              action: command
+              actionItem: =props.item
+              actionCommand: "=(#props.item - 0.5 < 5) ? 5 : (#props.item - 0.5)"
+              style:
+                min-width: 36px
+                height: 30px
+                padding: 0
+                border-radius: 4px
+                font-size: 18px
+                line-height: 1
+                display: flex
+                align-items: center
+                justify-content: center
+          - component: Label
+            config:
+              text: =@props.item
+              style:
+                min-width: 70px
+                text-align: center
+          - component: oh-button
+            config:
+              text: "+"
+              outline: true
+              action: command
+              actionItem: =props.item
+              actionCommand: "=(#props.item + 0.5 > 35) ? 35 : (#props.item + 0.5)"
+              style:
+                min-width: 36px
+                height: 30px
+                padding: 0
+                border-radius: 4px
+                font-size: 18px
+                line-height: 1
+                display: flex
+                align-items: center
+                justify-content: center

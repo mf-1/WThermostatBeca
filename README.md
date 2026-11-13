@@ -75,6 +75,8 @@ After every MQTT (re)connect the device publishes retained discovery configs to 
 The device info contains manufacturer and model family of the configured model (e.g. Moes, BHT-002) and the firmware version.  
 The labels of the climate channels (mode, preset, action) are set by Home Assistant / openHAB. In openHAB, name the linked items like the dashboard.
 
+Example openHAB items, a setpoint widget and a page: [docs/openHAB](docs/openHAB/README.md).
+
 The device is shown as offline when the last will (`"alive":false`) is published on `<your_mqtt_topic>/thermostat/<your_state_topic>`.
 
 Since 1.38.14 the device id is the hostname in camel case without separators, starting lowercase. openHAB builds the thing id from it (other characters than letters and digits would be encoded, e.g. `beca-living-room` → `beca_2Dliving_2Droom`):

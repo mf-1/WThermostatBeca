@@ -1,0 +1,58 @@
+config:
+  label: Thermostats
+blocks:
+  - component: oh-block
+    config:
+      title: Target temperature
+    slots:
+      default:
+        - component: oh-grid-row
+          slots:
+            default:
+              - component: oh-grid-col
+                slots:
+                  default:
+                    - component: oh-list
+                      slots:
+                        default:
+                          - component: widget:beca_setpoint_stepper
+                            config:
+                              item: becaOffice_TargetTemperature
+                              title: Office
+                          - component: widget:beca_setpoint_stepper
+                            config:
+                              item: becaKitchen_TargetTemperature
+                              title: Kitchen
+                          - component: widget:beca_setpoint_stepper
+                            config:
+                              item: becaLivingRoom_TargetTemperature
+                              title: Living room
+  - component: oh-block
+    config:
+      title: Scheduled temperature (all periods)
+    slots:
+      default:
+        - component: oh-grid-row
+          slots:
+            default:
+              - component: oh-grid-col
+                slots:
+                  default:
+                    - component: oh-list
+                      slots:
+                        default:
+                          - component: widget:beca_setpoint_stepper
+                            config:
+                              item: becaOffice_ScheduledTemperature
+                              title: Office
+                              icon: oh:calendar
+                          - component: widget:beca_setpoint_stepper
+                            config:
+                              item: becaKitchen_ScheduledTemperature
+                              title: Kitchen
+                              icon: oh:calendar
+                          - component: widget:beca_setpoint_stepper
+                            config:
+                              item: becaLivingRoom_ScheduledTemperature
+                              title: Living room
+                              icon: oh:calendar
